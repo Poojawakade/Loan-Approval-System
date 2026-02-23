@@ -7,18 +7,19 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 
 st.set_page_config(page_title="Loan Approval ML System", layout="wide")
-st.title("🏦 Loan Approval Prediction System (ML Based)")
+st.title("🏦 Loan Approval Prediction System (Robust ML Version)")
 
 st.write("Step 1: Upload Training Dataset (Must contain Loan_Status column)")
 
-# ------------------------
+# -------------------------
 # TRAINING DATA UPLOAD
-# ------------------------
+# -------------------------
 
 train_file = st.file_uploader("Upload Training Dataset", type=["csv", "xlsx"], key="train")
 
 if train_file is not None:
 
+    # Read training file
     if train_file.name.endswith(".csv"):
         train_df = pd.read_csv(train_file)
     else:
@@ -33,7 +34,10 @@ if train_file is not None:
     st.subheader("Training Data Preview")
     st.dataframe(train_df.head())
 
-    # Encode categorical columns
+    # -------------------------
+    # ENCODING
+    # -------------------------
+
     df_model = train_df.copy()
     label_encoders = {}
 
@@ -58,11 +62,11 @@ if train_file is not None:
 
     st.success(f"Model Trained Successfully ✅ | Accuracy: {round(acc*100,2)}%")
 
-    # ------------------------
+    # -------------------------
     # PREDICTION DATA UPLOAD
-    # ------------------------
+    # -------------------------
 
-    st.write("Step 2: Upload New Dataset for Prediction (NO Loan_Status column)")
+    st.write("Step 2: Upload New Dataset for Prediction")
 
     predict_file = st.file_uploader("Upload Prediction Dataset", type=["csv", "xlsx"], key="predict")
 
@@ -78,20 +82,49 @@ if train_file is not None:
         st.subheader("Prediction Data Preview")
         st.dataframe(predict_df.head())
 
-        # Apply same encoding
         predict_model_df = predict_df.copy()
 
-        for col in predict_model_df.columns:
-            if col in label_encoders:
-                le = label_encoders[col]
-                predict_model_df[col] = le.transform(predict_model_df[col])
+        # -------------------------
+        # HANDLE CATEGORICAL ENCODING SAFELY
+        # -------------------------
 
-        # Ensure same columns order
-        predict_model_df = predict_model_df[X.columns]
+        for col in label_encoders:
+            if col != "Loan_Status":
+                if col in predict_model_df.columns:
+                    le = label_encoders[col]
+
+                    # Replace unseen categories safely
+                    predict_model_df[col] = predict_model_df[col].apply(
+                        lambda x: x if x in le.classes_ else le.classes_[0]
+                    )
+
+                    predict_model_df[col] = le.transform(predict_model_df[col])
+                else:
+                    # Add missing categorical column
+                    predict_model_df[col] = 0
+
+        # -------------------------
+        # HANDLE NUMERIC MISSING COLUMNS
+        # -------------------------
+
+        training_columns = X.columns.tolist()
+
+        for col in training_columns:
+            if col not in predict_model_df.columns:
+                predict_model_df[col] = 0
+
+        # Remove extra columns
+        predict_model_df = predict_model_df[training_columns]
+
+        # Convert all to numeric safely
+        predict_model_df = predict_model_df.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+        # -------------------------
+        # PREDICTION
+        # -------------------------
 
         predictions = model.predict(predict_model_df)
 
-        # Convert back to original labels
         if "Loan_Status" in label_encoders:
             predictions = label_encoders["Loan_Status"].inverse_transform(predictions)
 
@@ -108,3 +141,6 @@ if train_file is not None:
             "loan_predictions.csv",
             "text/csv"
         )
+
+else:
+    st.info("Please upload a training dataset to begin.")
