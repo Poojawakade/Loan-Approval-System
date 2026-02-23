@@ -1,94 +1,110 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
 
-st.set_page_config(page_title="Loan Approval System", layout="wide")
-st.title("🏦 Automated Loan Approval System")
+st.set_page_config(page_title="Loan Approval ML System", layout="wide")
+st.title("🏦 Loan Approval Prediction System (ML Based)")
 
-st.write("Upload Loan Application Dataset (CSV or Excel)")
+st.write("Step 1: Upload Training Dataset (Must contain Loan_Status column)")
 
-uploaded_file = st.file_uploader("Upload Dataset", type=["csv", "xlsx"])
+# ------------------------
+# TRAINING DATA UPLOAD
+# ------------------------
 
-REQUIRED_COLUMNS = [
-    "ApplicantIncome",
-    "CoapplicantIncome",
-    "LoanAmount",
-    "CIBIL_Score"
-]
+train_file = st.file_uploader("Upload Training Dataset", type=["csv", "xlsx"], key="train")
 
-if uploaded_file is not None:
+if train_file is not None:
 
-    # Read file
-    if uploaded_file.name.endswith(".csv"):
-        df = pd.read_csv(uploaded_file)
+    if train_file.name.endswith(".csv"):
+        train_df = pd.read_csv(train_file)
     else:
-        df = pd.read_excel(uploaded_file)
+        train_df = pd.read_excel(train_file)
 
-    # Clean column names
-    df.columns = df.columns.str.strip()
+    train_df.columns = train_df.columns.str.strip()
 
-    st.subheader("Dataset Preview")
-    st.dataframe(df.head())
-
-    # Check required columns
-    missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
-
-    if missing_cols:
-        st.error(f"Missing required columns: {missing_cols}")
+    if "Loan_Status" not in train_df.columns:
+        st.error("Training dataset must contain 'Loan_Status' column.")
         st.stop()
 
-    # Convert to numeric
-    for col in REQUIRED_COLUMNS:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    st.subheader("Training Data Preview")
+    st.dataframe(train_df.head())
 
-    df = df.dropna(subset=REQUIRED_COLUMNS)
+    # Encode categorical columns
+    df_model = train_df.copy()
+    label_encoders = {}
 
-    # 🔥 VECTORISED APPROVAL LOGIC (Fast & Professional)
+    for col in df_model.columns:
+        if df_model[col].dtype == "object":
+            le = LabelEncoder()
+            df_model[col] = le.fit_transform(df_model[col])
+            label_encoders[col] = le
 
-    total_income = df["ApplicantIncome"] + df["CoapplicantIncome"]
-    loan_ratio = df["LoanAmount"] / (total_income + 1)
+    X = df_model.drop("Loan_Status", axis=1)
+    y = df_model["Loan_Status"]
 
-    df["Loan_Status"] = np.where(
-        (df["CIBIL_Score"] >= 750) & (loan_ratio < 0.5),
-        "Approved",
-        np.where(
-            (df["CIBIL_Score"] >= 650) & (loan_ratio < 0.4),
-            "Approved",
-            "Not Approved"
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = RandomForestClassifier(random_state=42)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+
+    st.success(f"Model Trained Successfully ✅ | Accuracy: {round(acc*100,2)}%")
+
+    # ------------------------
+    # PREDICTION DATA UPLOAD
+    # ------------------------
+
+    st.write("Step 2: Upload New Dataset for Prediction (NO Loan_Status column)")
+
+    predict_file = st.file_uploader("Upload Prediction Dataset", type=["csv", "xlsx"], key="predict")
+
+    if predict_file is not None:
+
+        if predict_file.name.endswith(".csv"):
+            predict_df = pd.read_csv(predict_file)
+        else:
+            predict_df = pd.read_excel(predict_file)
+
+        predict_df.columns = predict_df.columns.str.strip()
+
+        st.subheader("Prediction Data Preview")
+        st.dataframe(predict_df.head())
+
+        # Apply same encoding
+        predict_model_df = predict_df.copy()
+
+        for col in predict_model_df.columns:
+            if col in label_encoders:
+                le = label_encoders[col]
+                predict_model_df[col] = le.transform(predict_model_df[col])
+
+        # Ensure same columns order
+        predict_model_df = predict_model_df[X.columns]
+
+        predictions = model.predict(predict_model_df)
+
+        # Convert back to original labels
+        if "Loan_Status" in label_encoders:
+            predictions = label_encoders["Loan_Status"].inverse_transform(predictions)
+
+        predict_df["Predicted_Loan_Status"] = predictions
+
+        st.success("Predictions Generated Successfully ✅")
+        st.dataframe(predict_df)
+
+        # Download option
+        csv = predict_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download Prediction Results",
+            csv,
+            "loan_predictions.csv",
+            "text/csv"
         )
-    )
-
-    st.success("Loan decisions calculated automatically ✅")
-
-    # Summary Metrics
-    approved_count = (df["Loan_Status"] == "Approved").sum()
-    rejected_count = (df["Loan_Status"] == "Not Approved").sum()
-
-    col1, col2 = st.columns(2)
-    col1.metric("Total Approved", approved_count)
-    col2.metric("Total Rejected", rejected_count)
-
-    # Filter Option
-    st.subheader("Filter Results")
-
-    status_filter = st.selectbox(
-        "Select Loan Status",
-        ["All", "Approved", "Not Approved"]
-    )
-
-    if status_filter != "All":
-        df = df[df["Loan_Status"] == status_filter]
-
-    st.dataframe(df)
-
-    # Optional: Download updated file
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download Processed Dataset",
-        csv,
-        "processed_loan_results.csv",
-        "text/csv"
-    )
-
-else:
-    st.info("Please upload a dataset to start.")
